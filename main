@@ -1,0 +1,410 @@
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
+import json
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import os
+
+all_data = []
+
+max_coords = {
+    "Windenbach": (180, 135),
+    "Kuori": (150, 150)
+}
+
+languages = {
+    "Deutsch": {
+        "Data-Collector": "Data-Collector",
+        "Maps": "Maps",
+        "Fische": "Fische",
+        "Einstellungen": "Einstellungen",
+        "Fisch-Namen": "Fisch-Namen",
+        "Karten-Namen": "Karten-Namen",
+        "Montage": "Montage",
+        "Köder": "Köder",
+        "Koordinaten": "Koordinaten",
+        "Absenden": "Absenden",
+        "Fisch Auswählen:": "Fisch Auswählen:",
+        "Fisch-Arten": "Fisch-Arten",
+        "Daten erfolgreich gespeichert!": "Daten erfolgreich gespeichert!",
+        "Bitte füllen Sie alle Felder korrekt aus.": "Bitte füllen Sie alle Felder korrekt aus.",
+        "Keine Daten gefunden": "Keine Daten gefunden",
+        "Sprache": "Sprache"
+    },
+    "English": {
+        "Data-Collector": "Data-Collector",
+        "Maps": "Maps",
+        "Fische": "Fish",
+        "Einstellungen": "Settings",
+        "Fisch-Namen": "Fish Names",
+        "Karten-Namen": "Map Names",
+        "Montage": "Rig",
+        "Köder": "Bait",
+        "Koordinaten": "Coordinates",
+        "Absenden": "Submit",
+        "Fisch Auswählen:": "Select Fish:",
+        "Fisch-Arten": "Fish Species",
+        "Daten erfolgreich gespeichert!": "Data successfully saved!",
+        "Bitte füllen Sie alle Felder korrekt aus.": "Please fill in all fields correctly.",
+        "Keine Daten gefunden": "No data found",
+        "Sprache": "Language"
+    },
+    "Chinese": {
+        "Data-Collector": "数据收集器",
+        "Maps": "地图",
+        "Fische": "鱼",
+        "Einstellungen": "设置",
+        "Fisch-Namen": "鱼的名字",
+        "Karten-Namen": "卡牌名称",
+        "Montage": "集会",
+        "Köder": "饵",
+        "Koordinaten": "坐标",
+        "Absenden": "提交",
+        "Fisch Auswählen:": "选择鱼:",
+        "Fisch-Arten": "鱼种",
+        "Daten erfolgreich gespeichert!": "数据保存成功！",
+        "Bitte füllen Sie alle Felder korrekt aus.": "请正确填写所有字段。",
+        "Keine Daten gefunden": "没有找到数据",
+        "Sprache": "语言"
+    }
+}
+
+current_language = "Deutsch"
+
+def load_data():
+    global all_data
+    if os.path.exists('gesendete_daten.json'):
+        with open('gesendete_daten.json', 'r') as file:
+            all_data = json.load(file)
+    else:
+        all_data = []
+
+def save_data():
+    valid = validate_entries()
+    if valid:
+        data = {
+            'fish_name': fish_var.get(),
+            'map_name': map_var.get(),
+            'montage': montage_var.get(),
+            'bait': bait_var.get(),
+            'coordinates': {
+                'x': int(coord_x_entry.get()),
+                'y': int(coord_y_entry.get())
+            }
+        }
+        all_data.append(data)
+        with open('gesendete_daten.json', 'w') as file:
+            json.dump(all_data, file, indent=4)
+        print("Daten gespeichert:", data)
+        update_status(languages[current_language]["Daten erfolgreich gespeichert!"], success=True)
+        clear_entries()
+    else:
+        update_status(languages[current_language]["Bitte füllen Sie alle Felder korrekt aus."], success=False)
+
+def validate_entries():
+    if fish_var.get() not in fish_options:
+        return False
+    if map_var.get() not in map_options:
+        return False
+    if montage_var.get() not in montage_options:
+        return False
+    if bait_var.get() not in bait_options:
+        return False
+    try:
+        x = int(coord_x_entry.get())
+        y = int(coord_y_entry.get())
+        max_x, max_y = max_coords[map_var.get()]
+        if not (1 <= x <= max_x) or not (1 <= y <= max_y):
+            return False
+    except ValueError:
+        return False
+    return True
+
+def update_status(message, success=True):
+    status_label.config(text=message, fg='green' if success else 'red')
+
+def clear_entries():
+    fish_var.set('')
+    map_var.set('')
+    montage_var.set('')
+    bait_var.set('')
+    coord_x_entry.delete(0, tk.END)
+    coord_y_entry.delete(0, tk.END)
+
+def update_heatmap(event=None):
+    selected_map = heatmap_map_var.get()
+    selected_fish = heatmap_fish_var.get()
+    selected_montage = heatmap_montage_var.get()
+    selected_bait = heatmap_bait_var.get()
+
+    filtered_data = [
+        (data['coordinates']['x'], data['coordinates']['y'])
+        for data in all_data
+        if data['map_name'] == selected_map and data['fish_name'] == selected_fish and
+           data['montage'] == selected_montage and data['bait'] == selected_bait
+    ]
+
+    if filtered_data:
+        x_vals, y_vals = zip(*filtered_data)
+        max_x, max_y = max_coords[selected_map]
+        heatmap, xedges, yedges = np.histogram2d(x_vals, y_vals, bins=(50, 50), range=[[0, max_x], [0, max_y]])
+
+        fig, ax = plt.subplots()
+
+        try:
+            bg_image = Image.open(f"{selected_map.lower()}_background.png")
+            bg_image = bg_image.resize((1000, 1000), Image.LANCZOS)
+        except FileNotFoundError:
+            # Create a white background image if the file is not found
+            bg_image = Image.new('RGB', (1000, 1000), (255, 255, 255))
+
+        ax.imshow(bg_image, extent=[0, max_x, 0, max_y])
+
+        cax = ax.imshow(heatmap.T, origin='lower', cmap='viridis', alpha=0.6, interpolation='nearest',
+                        extent=[0, max_x, 0, max_y])
+        fig.colorbar(cax)
+
+        plt.show()
+
+        def format_coord(x, y):
+            col = int(x / max_x * 50)
+            row = int(y / max_y * 50)
+            if 0 <= col < 50 and 0 <= row < 50:
+                z = heatmap[col, row]
+                return f'x={x:.2f}, y={y:.2f}, intensity={z:.2f}'
+            else:
+                return f'x={x:.2f}, y={y:.2f}'
+
+        ax.format_coord = format_coord
+
+        global heatmap_canvas
+        if heatmap_canvas:
+            heatmap_canvas.get_tk_widget().destroy()
+        heatmap_canvas = FigureCanvasTkAgg(fig, master=maps_frame)
+        heatmap_canvas.draw()
+        heatmap_canvas.get_tk_widget().grid(row=7, column=0, columnspan=2, padx=10, pady=10)
+        no_data_label.grid_forget()
+    else:
+        if heatmap_canvas:
+            heatmap_canvas.get_tk_widget().destroy()
+        no_data_label.grid(row=7, column=0, columnspan=2, padx=10, pady=10)
+
+def update_language():
+    global current_language
+    current_language = language_var.get()
+
+    notebook.tab(0, text=languages[current_language]["Data-Collector"])
+    notebook.tab(1, text=languages[current_language]["Maps"])
+    notebook.tab(2, text=languages[current_language]["Fische"])
+    notebook.tab(3, text=languages[current_language]["Einstellungen"])
+
+    data_collector_label.config(text=languages[current_language]["Data-Collector"])
+    fish_label.config(text=languages[current_language]["Fisch-Namen"] + ":")
+    map_label.config(text=languages[current_language]["Karten-Namen"] + ":")
+    montage_label.config(text=languages[current_language]["Montage"] + ":")
+    bait_label.config(text=languages[current_language]["Köder"] + ":")
+    coordinates_label.config(text=languages[current_language]["Koordinaten"] + ":")
+    coord_x_label.config(text="X:")
+    coord_y_label.config(text="Y:")
+    submit_button.config(text=languages[current_language]["Absenden"])
+
+    maps_label.config(text=languages[current_language]["Maps"])
+    heatmap_map_label.config(text=languages[current_language]["Karten-Namen"] + ":")
+    heatmap_fish_label.config(text=languages[current_language]["Fisch-Namen"] + ":")
+    heatmap_montage_label.config(text=languages[current_language]["Montage"] + ":")
+    heatmap_bait_label.config(text=languages[current_language]["Köder"] + ":")
+    coordinates_label_heatmap.config(text=languages[current_language]["Koordinaten"] + ":")
+
+    Fisch_Arten_label.config(text=languages[current_language]["Fisch-Arten"])
+    fish_label.config(text=languages[current_language]["Fisch Auswählen:"])
+
+    no_data_label.config(text=languages[current_language]["Keine Daten gefunden"])
+
+    settings_label.config(text=languages[current_language]["Einstellungen"])
+
+root = tk.Tk()
+root.title("Hauptmenü")
+root.geometry("800x600")
+
+notebook = ttk.Notebook(root)
+notebook.pack(expand=True, fill='both')
+
+data_collector_frame = ttk.Frame(notebook)
+maps_frame = ttk.Frame(notebook)
+fish_frame = ttk.Frame(notebook)
+settings_frame = ttk.Frame(notebook)
+
+notebook.add(data_collector_frame, text=languages[current_language]['Data-Collector'])
+notebook.add(maps_frame, text=languages[current_language]['Maps'])
+notebook.add(fish_frame, text=languages[current_language]['Fische'])
+notebook.add(settings_frame, text=languages[current_language]['Einstellungen'])
+
+Fisch_Arten_label = tk.Label(fish_frame, text=languages[current_language]["Fisch-Arten"], font=('Helvetica', 16, 'bold'))
+Fisch_Arten_label.grid(row=0, column=6, columnspan=4, pady=10)
+
+fish_label = tk.Label(fish_frame, text=languages[current_language]["Fisch Auswählen:"])
+fish_label.grid(row=1, column=3, sticky='e')
+fish_options = ["Barsch", "Kaulbarsch"]
+fish_var = tk.StringVar()
+fish_dropdown = ttk.Combobox(fish_frame, textvariable=fish_var)
+fish_dropdown['values'] = fish_options
+fish_dropdown.grid(row=1, column=4, pady=5, sticky='w')
+
+data_collector_label = tk.Label(data_collector_frame, text=languages[current_language]["Data-Collector"], font=('Helvetica', 16, 'bold'))
+data_collector_label.grid(row=0, column=0, columnspan=4, pady=10)
+
+fish_label = tk.Label(data_collector_frame, text=languages[current_language]["Fisch-Namen"] + ":")
+fish_label.grid(row=1, column=0, sticky='e')
+fish_options = ["Barsch", "Kaulbarsch"]
+fish_var = tk.StringVar()
+fish_dropdown = ttk.Combobox(data_collector_frame, textvariable=fish_var)
+fish_dropdown['values'] = fish_options
+fish_dropdown.grid(row=1, column=1, pady=5, sticky='w')
+
+map_label = tk.Label(data_collector_frame, text=languages[current_language]["Karten-Namen"] + ":")
+map_label.grid(row=2, column=0, sticky='e')
+map_options = ["Windenbach", "Kuori"]
+map_var = tk.StringVar()
+map_dropdown = ttk.Combobox(data_collector_frame, textvariable=map_var)
+map_dropdown['values'] = map_options
+map_dropdown.grid(row=2, column=1, pady=5, sticky='w')
+
+map_image = Image.new('RGB', (200, 200), color='white')
+map_photo = ImageTk.PhotoImage(map_image)
+map_label_image = tk.Label(data_collector_frame, image=map_photo)
+map_label_image.grid(row=1, column=2, rowspan=4, padx=20, pady=5, sticky='n')
+
+coordinates_label = tk.Label(data_collector_frame, text=languages[current_language]["Koordinaten"] + ":")
+coordinates_label.grid(row=5, column=2, padx=20, pady=(0, 5), sticky='w')
+
+coord_x_label = tk.Label(data_collector_frame, text="X:")
+coord_x_label.grid(row=6, column=0, sticky='e')
+coord_x_entry = ttk.Entry(data_collector_frame, width=10)
+coord_x_entry.grid(row=6, column=1, padx=(0, 20), pady=(0, 5), sticky='w')
+
+coord_y_label = tk.Label(data_collector_frame, text="Y:")
+coord_y_label.grid(row=7, column=0, sticky='e')
+coord_y_entry = ttk.Entry(data_collector_frame, width=10)
+coord_y_entry.grid(row=7, column=1, padx=(0, 20), pady=(0, 5), sticky='w')
+
+montage_label = tk.Label(data_collector_frame, text=languages[current_language]["Montage"] + ":")
+montage_label.grid(row=3, column=0, sticky='e')
+montage_options = ["Montage 1", "Montage 2"]
+montage_var = tk.StringVar()
+montage_dropdown = ttk.Combobox(data_collector_frame, textvariable=montage_var)
+montage_dropdown['values'] = montage_options
+montage_dropdown.grid(row=3, column=1, pady=5, sticky='w')
+
+bait_label = tk.Label(data_collector_frame, text=languages[current_language]["Köder"] + ":")
+bait_label.grid(row=4, column=0, sticky='e')
+bait_options = ["Köder 1", "Köder 2"]
+bait_var = tk.StringVar()
+bait_dropdown = ttk.Combobox(data_collector_frame, textvariable=bait_var)
+bait_dropdown['values'] = bait_options
+bait_dropdown.grid(row=4, column=1, pady=5, sticky='w')
+
+status_label = tk.Label(data_collector_frame, text="", fg='green')
+status_label.grid(row=8, column=0, columnspan=3, pady=10)
+
+submit_button = tk.Button(data_collector_frame, text=languages[current_language]["Absenden"], command=save_data, font=('Helvetica', 12, 'bold'), bg='lightblue')
+submit_button.grid(row=9, column=0, columnspan=3, pady=20)
+
+no_data_label = tk.Label(maps_frame, text=languages[current_language]["Keine Daten gefunden"], font=('Helvetica', 12), fg='gray')
+
+heatmap_canvas = None
+
+coordinates_label_heatmap = tk.Label(maps_frame, text=languages[current_language]["Koordinaten"] + ":", font=('Helvetica', 12))
+coordinates_label_heatmap.grid(row=6, column=0, padx=20, pady=(10, 5), sticky='w')
+
+
+maps_label = tk.Label(maps_frame, text=languages[current_language]["Maps"], font=('Helvetica', 16, 'bold'))
+maps_label.grid(row=0, column=0, columnspan=4, pady=10)
+
+
+heatmap_map_label = tk.Label(maps_frame, text=languages[current_language]["Karten-Namen"] + ":")
+heatmap_map_label.grid(row=1, column=0, sticky='e')
+heatmap_map_options = ["Windenbach", "Kuori"]
+heatmap_map_var = tk.StringVar()
+heatmap_map_dropdown = ttk.Combobox(maps_frame, textvariable=heatmap_map_var)
+heatmap_map_dropdown['values'] = heatmap_map_options
+heatmap_map_dropdown.grid(row=1, column=1, pady=5, sticky='w')
+heatmap_map_dropdown.bind("<<ComboboxSelected>>", update_heatmap)
+
+
+heatmap_fish_label = tk.Label(maps_frame, text=languages[current_language]["Fisch-Namen"] + ":")
+heatmap_fish_label.grid(row=2, column=0, sticky='e')
+heatmap_fish_options = ["Barsch", "Kaulbarsch"]
+heatmap_fish_var = tk.StringVar()
+heatmap_fish_dropdown = ttk.Combobox(maps_frame, textvariable=heatmap_fish_var)
+heatmap_fish_dropdown['values'] = heatmap_fish_options
+heatmap_fish_dropdown.grid(row=2, column=1, pady=5, sticky='w')
+heatmap_fish_dropdown.bind("<<ComboboxSelected>>", update_heatmap)
+
+heatmap_montage_label = tk.Label(maps_frame, text=languages[current_language]["Montage"] + ":")
+heatmap_montage_label.grid(row=3, column=0, sticky='e')
+heatmap_montage_options = ["Montage 1", "Montage 2"]
+heatmap_montage_var = tk.StringVar()
+heatmap_montage_dropdown = ttk.Combobox(maps_frame, textvariable=heatmap_montage_var)
+heatmap_montage_dropdown['values'] = heatmap_montage_options
+heatmap_montage_dropdown.grid(row=3, column=1, pady=5, sticky='w')
+heatmap_montage_dropdown.bind("<<ComboboxSelected>>", update_heatmap)
+
+
+heatmap_bait_label = tk.Label(maps_frame, text=languages[current_language]["Köder"] + ":")
+heatmap_bait_label.grid(row=4, column=0, sticky='e')
+heatmap_bait_options = ["Köder 1", "Köder 2"]
+heatmap_bait_var = tk.StringVar()
+heatmap_bait_dropdown = ttk.Combobox(maps_frame, textvariable=heatmap_bait_var)
+heatmap_bait_dropdown['values'] = heatmap_bait_options
+heatmap_bait_dropdown.grid(row=4, column=1, pady=5, sticky='w')
+heatmap_bait_dropdown.bind("<<ComboboxSelected>>", update_heatmap)
+
+
+status_label_heatmap = tk.Label(maps_frame, text="", fg='green')
+status_label_heatmap.grid(row=8, column=0, columnspan=2, pady=(10, 0))
+
+
+settings_label = tk.Label(settings_frame, text=languages[current_language]["Einstellungen"], font=('Helvetica', 16, 'bold'))
+settings_label.grid(row=0, column=0, columnspan=4, pady=10)
+
+language_label = tk.Label(settings_frame, text=languages[current_language]["Sprache"] + ":")
+language_label.grid(row=1, column=0, sticky='e')
+language_options = list(languages.keys())
+language_var = tk.StringVar(value=current_language)
+language_dropdown = ttk.Combobox(settings_frame, textvariable=language_var)
+language_dropdown['values'] = language_options
+language_dropdown.grid(row=1, column=1, pady=5, sticky='w')
+
+def change_language(*args):
+    global current_language
+    current_language = language_var.get()
+    notebook.tab(0, text=languages[current_language]['Data-Collector'])
+    notebook.tab(1, text=languages[current_language]['Maps'])
+    notebook.tab(2, text=languages[current_language]['Fische'])
+    notebook.tab(3, text=languages[current_language]['Einstellungen'])
+    Fisch_Arten_label.config(text=languages[current_language]["Fisch-Arten"])
+    fish_label.config(text=languages[current_language]["Fisch Auswählen:"])
+    data_collector_label.config(text=languages[current_language]["Data-Collector"])
+    fish_label.config(text=languages[current_language]["Fisch-Namen"] + ":")
+    map_label.config(text=languages[current_language]["Karten-Namen"] + ":")
+    coordinates_label.config(text=languages[current_language]["Koordinaten"] + ":")
+    montage_label.config(text=languages[current_language]["Montage"] + ":")
+    bait_label.config(text=languages[current_language]["Köder"] + ":")
+    submit_button.config(text=languages[current_language]["Absenden"])
+    no_data_label.config(text=languages[current_language]["Keine Daten gefunden"])
+    coordinates_label_heatmap.config(text=languages[current_language]["Koordinaten"] + ":")
+    maps_label.config(text=languages[current_language]["Maps"])
+    heatmap_map_label.config(text=languages[current_language]["Karten-Namen"] + ":")
+    heatmap_fish_label.config(text=languages[current_language]["Fisch-Namen"] + ":")
+    heatmap_montage_label.config(text=languages[current_language]["Montage"] + ":")
+    heatmap_bait_label.config(text=languages[current_language]["Köder"] + ":")
+    settings_label.config(text=languages[current_language]["Einstellungen"])
+    language_label.config(text=languages[current_language]["Sprache"] + ":")
+
+language_var.trace('w', change_language)
+
+load_data()
+
+root.mainloop()
